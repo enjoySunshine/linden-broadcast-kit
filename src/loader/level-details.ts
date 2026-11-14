@@ -47,6 +47,7 @@ export class LevelDetails {
   public holdBack: number = 0;
   public partTarget: number = 0;
   public preloadHint?: AttrList;
+  public mapPreloadHint?: AttrList;
   public renditionReports?: AttrList[];
   public tuneInGoal: number = 0;
   public deltaUpdateFailed?: boolean;

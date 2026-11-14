@@ -3630,6 +3630,8 @@ export class LevelDetails {
     // (undocumented)
     get maxPartIndex(): number;
     // (undocumented)
+    mapPreloadHint?: AttrList;
+    // (undocumented)
     misses: number;
     // (undocumented)
     get partEnd(): number;

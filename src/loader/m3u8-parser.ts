@@ -721,7 +721,14 @@ export default class M3U8Parser {
           }
           case 'PRELOAD-HINT': {
             const preloadHintAttrs = new AttrList(value1, level);
-            level.preloadHint = preloadHintAttrs;
+            // An EXT-X-PRELOAD-HINT tag can have a TYPE of PART or MAP. A
+            // Playlist can contain one of each, so they are stored separately
+            // instead of overwriting one another when both are present.
+            if (preloadHintAttrs.TYPE === 'MAP') {
+              level.mapPreloadHint = preloadHintAttrs;
+            } else {
+              level.preloadHint = preloadHintAttrs;
+            }
             break;
           }
           case 'RENDITION-REPORT': {
@@ -749,9 +756,15 @@ export default class M3U8Parser {
         programDateTimes,
       );
       frag.cc = discontinuityCounter;
-      level.fragmentHint = frag as MediaFragment;
-      if (levelkeys) {
-        setFragLevelKeys(frag, levelkeys, level);
+      // A fragment without a URI has not been added to the playlist yet. It
+      // represents the segment that the listed partial segments (or the PART
+      // preload hint) belong to. When the playlist ends on a complete segment
+      // there is no such pending segment, so no fragment hint is created.
+      if (!frag.relurl) {
+        level.fragmentHint = frag as MediaFragment;
+        if (levelkeys) {
+          setFragLevelKeys(frag, levelkeys, level);
+        }
       }
     }
     if (!level.targetduration) {
@@ -787,6 +800,15 @@ export default class M3U8Parser {
           programDateTimes.unshift(firstFragment as MediaFragment);
         }
       }
+    }
+    if (level.mapPreloadHint && level.fragmentHint) {
+      // A MAP preload hint describes the Media Initialization Section of the
+      // segment that the PART preload hint belongs to. Apply it to the fragment
+      // hint as its init segment, leaving completed segments untouched.
+      const mapInit = new Fragment(type, base);
+      setInitSegment(mapInit, level.mapPreloadHint, id, levelkeys);
+      mapInit.cc = discontinuityCounter;
+      level.fragmentHint.initSegment = mapInit;
     }
     if (level.fragmentHint) {
       totalduration += level.fragmentHint.duration;

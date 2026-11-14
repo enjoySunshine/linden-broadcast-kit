@@ -1537,6 +1537,51 @@ getMP4MediaFragment.mp4?FragmentNumber=91343852333398821516816632930230891347979
       const mergedSequence = getFragmentSequenceNumbers(newPlaylist);
       expect(mergedSequence).to.equal('1-2,2-3,3-4,4-5,5-6');
     });
+
+    it('keeps the MAP preload hint init segment on the next segment when the hints are removed in an update', function () {
+      const playlistWithHints = `#EXTM3U
+#EXT-X-VERSION:9
+#EXT-X-TARGETDURATION:2
+#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK=1.5
+#EXT-X-PART-INF:PART-TARGET=0.5
+#EXT-X-MEDIA-SEQUENCE:8
+#EXT-X-MAP:URI="init.mp4"
+#EXT-X-PART:DURATION=0.5,INDEPENDENT=YES,URI="seg/9-0.mp4"
+#EXT-X-PART:DURATION=0.5,INDEPENDENT=NO,URI="seg/9-1.mp4"
+#EXTINF:1.0,
+file9.mp4
+#EXT-X-PRELOAD-HINT:TYPE=MAP,URI="init2.mp4"
+#EXT-X-PRELOAD-HINT:TYPE=PART,URI="seg/10-0.mp4",BYTERANGE="800@0"`;
+      const playlistWithoutHints = `#EXTM3U
+#EXT-X-VERSION:9
+#EXT-X-TARGETDURATION:2
+#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK=1.5
+#EXT-X-PART-INF:PART-TARGET=0.5
+#EXT-X-MEDIA-SEQUENCE:8
+#EXT-X-MAP:URI="init.mp4"
+#EXT-X-PART:DURATION=0.5,INDEPENDENT=YES,URI="seg/9-0.mp4"
+#EXT-X-PART:DURATION=0.5,INDEPENDENT=NO,URI="seg/9-1.mp4"
+#EXTINF:1.0,
+file9.mp4`;
+      const oldDetails = parseLevelPlaylist(playlistWithHints);
+      const newDetails = parseLevelPlaylist(playlistWithoutHints);
+      expect(oldDetails.mapPreloadHint).to.deep.include({
+        TYPE: 'MAP',
+        URI: 'init2.mp4',
+      });
+      expect(oldDetails.fragmentHint?.initSegment).to.deep.include({
+        relurl: 'init2.mp4',
+      });
+      expect(newDetails.fragmentHint).to.be.undefined;
+      expect(newDetails.preloadHint).to.be.undefined;
+      expect(newDetails.mapPreloadHint).to.be.undefined;
+      mergeDetails(oldDetails, newDetails, logger);
+      expect(newDetails.playlistParsingError).to.be.null;
+      // The completed segment still uses its original init segment
+      expect(newDetails.fragments[0].initSegment).to.deep.include({
+        relurl: 'init.mp4',
+      });
+    });
   });
 
   describe('computeReloadInterval', function () {

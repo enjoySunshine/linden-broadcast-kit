@@ -1980,6 +1980,151 @@ fileSequence81641.m4s
         URI: 'lowLatencySeg.m4s?segment=filePart81642.4.m4s',
       });
     });
+
+    it('keeps a PART preload hint on a pending segment without adding it to the playlist', function () {
+      const playlist = `#EXTM3U
+#EXT-X-VERSION:9
+#EXT-X-TARGETDURATION:2
+#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK=1.5
+#EXT-X-PART-INF:PART-TARGET=0.5
+#EXT-X-MEDIA-SEQUENCE:8
+#EXT-X-MAP:URI="init.mp4"
+#EXT-X-PART:DURATION=0.5,INDEPENDENT=YES,URI="seg/8-0.mp4"
+#EXT-X-PART:DURATION=0.5,INDEPENDENT=NO,URI="seg/8-1.mp4"
+#EXT-X-PART:DURATION=0.5,INDEPENDENT=NO,URI="seg/8-2.mp4"
+#EXT-X-PART:DURATION=0.5,INDEPENDENT=NO,URI="seg/8-3.mp4"
+#EXTINF:2.0,
+file8.mp4
+#EXT-X-PART:DURATION=0.5,INDEPENDENT=YES,URI="seg/9-0.mp4"
+#EXT-X-PART:DURATION=0.5,INDEPENDENT=NO,URI="seg/9-1.mp4"
+#EXT-X-PRELOAD-HINT:TYPE=PART,URI="seg/9-2.mp4",BYTERANGE="1500@1000"`;
+      const details = M3U8Parser.parseLevelPlaylist(
+        playlist,
+        'http://dummy.url.com/playlist.m3u8',
+        0,
+        PlaylistLevelType.MAIN,
+        0,
+        null,
+      );
+      expect(details.playlistParsingError).to.be.null;
+      // The hinted partial segment is not listed yet and does not change the edge
+      expect(details.totalduration).to.equal(3);
+      expect(details.endSN).to.equal(8);
+      expect(details.lastPartSn).to.equal(9);
+      expect(details.lastPartIndex).to.equal(1);
+      // The complete segment and the pending one share the init segment
+      expect(details.fragments).to.have.lengthOf(1);
+      expect(details.fragments[0]).to.deep.include({
+        sn: 8,
+        relurl: 'file8.mp4',
+      });
+      expect(details.fragments[0].initSegment).to.deep.include({
+        relurl: 'init.mp4',
+      });
+      // The pending segment stays a fragment hint for the already listed parts
+      expect(details.fragmentHint).to.deep.include({
+        sn: 9,
+        start: 2,
+        duration: 1,
+      });
+      expect(details.fragmentHint?.initSegment).to.deep.include({
+        relurl: 'init.mp4',
+      });
+      // The PART preload hint is retained with its unresolved byte range
+      expect(details.preloadHint).to.deep.include({
+        TYPE: 'PART',
+        URI: 'seg/9-2.mp4',
+        BYTERANGE: '1500@1000',
+      });
+      expect(details.mapPreloadHint).to.be.undefined;
+    });
+
+    it('retains both MAP and PART preload hints and applies the MAP hint to the fragment hint', function () {
+      const playlist = `#EXTM3U
+#EXT-X-VERSION:9
+#EXT-X-TARGETDURATION:2
+#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK=1.5
+#EXT-X-PART-INF:PART-TARGET=0.5
+#EXT-X-MEDIA-SEQUENCE:8
+#EXT-X-MAP:URI="init.mp4"
+#EXT-X-PART:DURATION=0.5,INDEPENDENT=YES,URI="seg/9-0.mp4"
+#EXT-X-PART:DURATION=0.5,INDEPENDENT=NO,URI="seg/9-1.mp4"
+#EXTINF:1.0,
+file9.mp4
+#EXT-X-PRELOAD-HINT:TYPE=MAP,URI="init2.mp4"
+#EXT-X-PRELOAD-HINT:TYPE=PART,URI="seg/10-0.mp4",BYTERANGE="800@0"`;
+      const details = M3U8Parser.parseLevelPlaylist(
+        playlist,
+        'http://dummy.url.com/playlist.m3u8',
+        0,
+        PlaylistLevelType.MAIN,
+        0,
+        null,
+      );
+      expect(details.playlistParsingError).to.be.null;
+      expect(details.totalduration).to.equal(1);
+      expect(details.endSN).to.equal(8);
+      expect(details.lastPartSn).to.equal(8);
+      expect(details.lastPartIndex).to.equal(1);
+      // The complete segment keeps its original init segment
+      expect(details.fragments[0]).to.deep.include({ sn: 8 });
+      expect(details.fragments[0].initSegment).to.deep.include({
+        relurl: 'init.mp4',
+      });
+      // Both preload hints are retained instead of overwriting each other
+      expect(details.mapPreloadHint).to.deep.include({
+        TYPE: 'MAP',
+        URI: 'init2.mp4',
+      });
+      expect(details.preloadHint).to.deep.include({
+        TYPE: 'PART',
+        URI: 'seg/10-0.mp4',
+        BYTERANGE: '800@0',
+      });
+      // The next (not yet listed) segment is a fragment hint using the MAP hint
+      expect(details.fragmentHint).to.deep.include({
+        sn: 9,
+        start: 1,
+        duration: 0,
+      });
+      expect(details.fragmentHint?.initSegment).to.deep.include({
+        relurl: 'init2.mp4',
+        sn: 'initSegment',
+      });
+    });
+
+    it('does not create a fragment hint or preload hints when the playlist ends on a complete segment', function () {
+      const playlist = `#EXTM3U
+#EXT-X-VERSION:9
+#EXT-X-TARGETDURATION:2
+#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK=1.5
+#EXT-X-PART-INF:PART-TARGET=0.5
+#EXT-X-MEDIA-SEQUENCE:8
+#EXT-X-MAP:URI="init.mp4"
+#EXT-X-PART:DURATION=0.5,INDEPENDENT=YES,URI="seg/9-0.mp4"
+#EXT-X-PART:DURATION=0.5,INDEPENDENT=NO,URI="seg/9-1.mp4"
+#EXTINF:1.0,
+file9.mp4`;
+      const details = M3U8Parser.parseLevelPlaylist(
+        playlist,
+        'http://dummy.url.com/playlist.m3u8',
+        0,
+        PlaylistLevelType.MAIN,
+        0,
+        null,
+      );
+      expect(details.playlistParsingError).to.be.null;
+      expect(details.totalduration).to.equal(1);
+      expect(details.endSN).to.equal(8);
+      expect(details.lastPartSn).to.equal(8);
+      expect(details.lastPartIndex).to.equal(1);
+      expect(details.fragmentHint).to.be.undefined;
+      expect(details.preloadHint).to.be.undefined;
+      expect(details.mapPreloadHint).to.be.undefined;
+      expect(details.fragments[0].initSegment).to.deep.include({
+        relurl: 'init.mp4',
+      });
+    });
   });
 
   it('adds BITRATE to fragment.tagList', function () {
